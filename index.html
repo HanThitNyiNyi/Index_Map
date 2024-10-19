@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Mapbox GL JS - Multi-Layer Visualization</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.9.1/mapbox-gl.js'></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.9.1/mapbox-gl.css' rel='stylesheet'>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: "Open Sans", sans-serif;
+        }
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            z-index: 1;
+            border-radius: 4px;
+            font-size: 14px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        #legend {
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            position: absolute;
+            top: 60px;
+            right: 10px;
+            z-index: 1;
+            font-family: "Open Sans", sans-serif;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        #header {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 24px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            z-index: 2;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        #histogram {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            width: 400px;
+            height: 250px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            z-index: 1;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        #percentile-label {
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        #variables-info {
+            position: absolute;
+            bottom: 280px;
+            left: 10px;
+            width: 400px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            z-index: 1;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            font-size: 14px;
+        }
+        .variable-entry {
+            margin-bottom: 5px;
+        }
+        /* Custom styles for the color scale legend */
+        #color-legend {
+            position: absolute;
+            bottom: 280px;
+            right: 10px;
+            width: 200px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            z-index: 1;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            font-size: 14px;
+        }
+        #variable-legend {
+            position: absolute;
+            top: 130px;
+            right: 10px;
+            width: 200px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            z-index: 1;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            font-size: 14px;
+        }
+        .legend-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .color-bar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        .color-box {
+            width: 20px;
+            height: 20px;
+        }
+        .color-text {
+            margin-left: 10px;
+        }
+        #deselect-btn {
+            display: none;
+            position: absolute;
+            bottom: 265px;
+            left: 10px;
+            padding: 3px 8px;
+            background-color: #ffffff;
+            border-radius: 4px;
+            z-index: 2;
+        }
+        #deselect-tract {
+            font-size: 10px;
+            padding: 3px 6px;
+            border: 1px solid #ccc;
+            background-color: #ffffff;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="header">Air Pollution Index by Census Tract</div>
+    <div id="map"></div>
+    <div class="controls">
+        <select id="layer-select">
+            <option value="air_pollution">Air Pollution</option>
+            <option value="water_pollution">Water Pollution</option>
+            <option value="land_pollution">Land Pollution</option>
+            <option value="health_disparity">Health Disparity</option>
+            <option value="health_vulnerability">Health Vulnerability</option>
+        </select>
+    </div>
+
+
+    <div id="legend">Hover over a census tract</div>
+    <div id="histogram">
+        <div id="deselect-btn" style="display: none; position: absolute; top: 1px; left: 10px; padding: 3px 8px; background-color: #ffffff; border-radius: 4px; z-index: 1;">
+            <button id="deselect-tract" >Deselect Census Tract</button>
+        </div>
+        
+        <div id="percentile-label">Percentile: -</div>
+        <canvas id="histogramChart"></canvas>
+    </div>
+    <div id="variables-info">Click on a census tract to see details.</div>
+
+    <div id="color-legend">
+        <div class="legend-title">Legend</div>
+        <div class="color-bar">
+            <div class="color-box" style="background-color: #ffffcc;"></div>
+            <span class="color-text">Low</span>
+        </div>
+        <div class="color-bar">
+            <div class="color-box" style="background-color: #1f77b4;"></div>
+            <span class="color-text">High</span>
+        </div>
+        <div id="layer-description"></div>
+    </div>
+    <div id="variable-legend">
+        <div class="legend-title">Variable Information</div>
+        <div id="variable-description">Hover over a variable to see its description.</div>
+    </div>
+
+    <script>
+        mapboxgl.accessToken = 'pk.eyJ1IjoiZXRoYW5oYW50aGl0IiwiYSI6ImNseHV2Z256MjBnZ2oybG9nOHdoNWJ0ZXgifQ.fwx1vL07eTM5i5mriZocuQ';
+        var map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/satellite-streets-v12',
+            center: [-117.1611, 32.7157], // San Diego coordinates
+            zoom: 10
+        });
+
+
+        let histogramChart = null;
+        
+        const dataDictionary = {
+            "Ozone Concentration": "Amount of daily maximum 8 hour Ozone concentration",
+            "Ozone Pctl": "Ozone percentile",
+            "PM2.5 Concentration": "Annual mean PM 2.5 concentrations",
+            "PM2.5 Pctl": "PM2.5 percentile",
+            "Diesel PM Concentration": "Diesel PM emissions from on-road and non-road sources",
+            "Diesel PM Pctl": "Diesel PM percentile",
+            "Drinking Water Contaminants": "Drinking water contaminant score for selected contaminants based on EPA survey",
+            "Drinking Water Pctl": "Drinking water percentile",
+            "Lead": "Potential risk for lead exposure in children living in low-income communities with older housing",
+            "Lead Pctl": "Children's lead risk from housing percentile",
+            "Pesticides ": "Total pounds of selected active pesticide ingredients used in production-agriculture per square mile in the census tract",
+            "Pesticides Pctl": "Pesticides percentile",
+            "Concentration of Tox. Release ": "Toxicity-weighted concentrations of modeled chemical releases to air from facility emissions and off-site incineration",
+            "Tox. Release Pctl": "Toxic release percentile",
+            "Traffic": "Traffic density in vehicle-kilometers per hour per road length within 150 meters of the census tract boundary",
+            "Traffic Pctl": "Traffic percentile",
+            "Cleanup Sites": "Sum of weighted EnviroStor cleanup sites within buffered distances to populated blocks of census tracts",
+            "Cleanup Sites Pctl": "Cleanup sites percentile",
+            "Groundwater Threats ": "Weighted sum based on severity and quanity of leaking underground storage tank sites within buffered distances to populated blocks of census tracts",
+            "Groundwater Threats Pctl": "Groundwater threats percentile",
+            "Haz. Waste": "Sum of weighted hazardous waste facilities and large quantity generators within buffered distances to populated blocks of census tracts",
+            "Haz. Waste Pctl": "Hazardous waste percentile",
+            "Imp. Water Bodies": "Number of pollutants across all impaired water bodies within buffered distances to populated blocks of census tracts",
+            "Imp. Water Bodies Pctl": "Impaired water bodies percentile",
+            'NonCompliantPercentage' : '% of water treatment facilities within tract that has had more than 3 months of outstanding non-compliance',
+            "Solid Waste Sites": "Sum of weighted solid waste sites based on amount of waste and facilities within buffered distances to populated blocks of census tracts",
+            "Solid Waste Pctl": "Solid waste percentile",
+            "Cancer (non-skin) or melanoma among adults": "Percentage of adults in the census tract with non-skin cancer or melanoma",
+            "Chronic obstructive pulmonary disease among adults": "Percentage of adults in the census tract with chronic obstructive pulmonary disease (COPD)",
+            "Coronary heart disease among adults": "Percentage of adults in the census tract with coronary heart disease",
+            "Current asthma among adults": "Percentage of adults in the census tract currently diagnosed with asthma",
+            "Stroke among adults": "Percentage of adults in the census tract with a history of stroke",
+            'Air_Pollution_Final_Score': 'This index represents the level of air pollution in each census tract, including pollutants such as Ozone, PM2.5, and Diesel emissions.',
+            'Water_Pollution_Final_Score': 'This index measures the pollution in water bodies, including drinking water contaminants, groundwater threats, and noncompliance.',
+            'Land_Pollution_Final_Score': 'This index tracks land pollution, including hazardous waste, pesticides, and lead contamination in solid waste sites.',
+            'Health_Disparity_Final_Score': 'The health disparity index highlights areas with high incidences of chronic health conditions such as asthma, cancer, and heart disease.'
+        } ;
+
+        // Function to show the popup with the description
+    // Function to show variable information on hover
+        // Function to show variable description in the static legend box
+        function showVariableDescription(variable) {
+            const variableDescription = document.getElementById('variable-description');
+            variableDescription.innerHTML = `<strong>${variable}:</strong> ${dataDictionary[variable] || 'No description available'}`;
+        }
+    // Hide tooltip when the mouse leaves the variable entry
+        function hideTooltip() {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'none';
+        }
+                // Example data for layer variables
+        const layerVariables = {
+                air_pollution: [
+            'Ozone Concentration', 'PM2.5 Concentration', 'Diesel PM Concentration', 'Concentration of Tox. Release '
+        ],
+                water_pollution: [
+            'Drinking Water Contaminants', 'Groundwater Threats ', 'Imp. Water Bodies', 'NonCompliantPercentage'
+        ],
+                land_pollution: [
+            'Pesticides ', 'Haz. Waste', 'Solid Waste Sites ', 'Lead'
+        ],
+                health_disparity: [
+            'Current asthma among adults', 'Stroke among adults', 
+            'Cancer (non-skin) or melanoma among adults', 'Coronary heart disease among adults',
+            'Chronic obstructive pulmonary disease among adults'
+        ],
+                health_vulnerability: [
+            'Air_Pollution_Final_Score', 'Water_Pollution_Final_Score', 'Land_Pollution_Final_Score', 'Health_Disparity_Final_Score'
+        ]
+            };
+        
+        document.addEventListener('DOMContentLoaded', function () {
+            const selectedLayer = document.getElementById('layer-select').value;
+            updateVariablesInfo(selectedLayer);  // Initial load for the selected layer
+        });
+
+        document.getElementById('layer-select').addEventListener('change', function (e) {
+            const selectedLayer = e.target.value;
+            updateVariablesInfo(selectedLayer);  // Update when a new layer is selected
+        });
+
+// Function to update variable info dynamically and set hover events for tooltips
+        // Function to update variable information dynamically based on selected layer
+// Function to update variable info dynamically based on selected layer
+        function updateVariablesInfo(layerKey) {
+            const variablesInfo = document.getElementById('variables-info');
+            variablesInfo.innerHTML = ''; // Clear the existing entries
+
+            const variables = layerVariables[layerKey];
+            if (variables) {
+                variables.forEach(function (variable) {
+                    const variableEntry = document.createElement('div');
+                    variableEntry.classList.add('variable-entry');
+                    variableEntry.textContent = variable;
+                    variablesInfo.appendChild(variableEntry);
+
+                    // Attach hover event to show description in the static box
+                    variableEntry.addEventListener('mouseover', function () {
+                        showVariableDescription(variable);  // Show variable description in the legend
+                    });
+
+                    // Optionally, clear the description when mouse leaves (or you can leave the last hovered description)
+                    variableEntry.addEventListener('mouseout', function () {
+                        document.getElementById('variable-description').innerHTML = 'Hover over a variable to see its description.';
+                    });
+                });
+            }
+        }
+
+// Initial load for the selected layer
+        document.addEventListener('DOMContentLoaded', function () {
+            const selectedLayer = document.getElementById('layer-select').value;
+            updateVariablesInfo(selectedLayer);  // Initial load for the selected layer
+        });
+
+
+        // Ensure the correct variables are loaded when the page is first loaded
+        document.addEventListener('DOMContentLoaded', function () {
+            const selectedLayer = document.getElementById('layer-select').value;
+            updateVariablesInfo(selectedLayer);  // Initial load for the selected layer
+        });
+
+        // Listen for changes in the dropdown and update variables accordingly
+        document.getElementById('layer-select').addEventListener('change', function (e) {
+            const selectedLayer = e.target.value;
+            updateVariablesInfo(selectedLayer);  // Update when a new layer is selected
+        });
+
+
+
+        const layerDescriptions = {
+            air_pollution: 'This index represents the level of air pollution in each census tract, including pollutants such as Ozone, PM2.5, and Diesel emissions.',
+            water_pollution: 'This index measures the pollution in water bodies, including drinking water contaminants, groundwater threats, and noncompliance.',
+            land_pollution: 'This index tracks land pollution, including hazardous waste, pesticides, and lead contamination in solid waste sites.',
+            health_disparity: 'The health disparity index highlights areas with high incidences of chronic health conditions such as asthma, cancer, and heart disease.',
+            health_vulnerability: 'This index measures areas where high health disparities are combined with adverse environmental conditions, making them more vulnerable to health risks.'
+        };
+
+        const layers = {
+            air_pollution: {
+                source: 'air_pollution',
+                sourceLayer: 'air_pollution_final_score5-3g9bd0',
+                field: 'Air_Pollution_Final_Score',
+                color: ['#ffffcc', '#1f77b4'],
+                valueRange: [-5, 5],
+                title: 'Air Pollution Index by Census Tract',
+                url: 'mapbox://ethanhanthit.4bf2funt',
+                variables: ['Ozone Concentration', 'PM2.5 Concentration', 'Diesel PM Concentration', 'Concentration of Tox. Release ']
+            },
+            water_pollution: {
+                source: 'water_pollution',
+                sourceLayer: 'water_pollution_final_score5-csqaxe',
+                field: 'Water_Pollution_Final_Score',
+                color: ['#ffffcc', '#ff7f0e'],
+                valueRange: [-5, 5],
+                title: 'Water Pollution Index by Census Tract',
+                url: 'mapbox://ethanhanthit.84yobla9',
+                variables: ['Drinking Water Contaminants', 'Groundwater Threats ', 'Imp. Water Bodies', 'NonCompliantPercentage']
+            },
+            land_pollution: {
+                source: 'land_pollution',
+                sourceLayer: 'land_pollution_final_score5-9d1uwu',
+                field: 'Land_Pollution_Final_Score',
+                color: ['#ffffcc', '#2ca02c'],
+                valueRange: [-5, 5],
+                title: 'Land Pollution Index by Census Tract',
+                url: 'mapbox://ethanhanthit.achdnyle',
+                variables: ['Pesticides ', 'Haz. Waste', 'Solid Waste Sites ', 'Lead']
+            },
+            health_disparity: {                source: 'health_disparity',
+                sourceLayer: 'health_disparity_final_score5-1ddo4v',
+                field: 'Health_Disparity_Final_Score',
+                color: ['#ffffcc', '#d62728'],
+                valueRange: [-5, 5],
+                title: 'Health Disparity Index by Census Tract',
+                url: 'mapbox://ethanhanthit.bj2083hc',
+                variables: ['Current asthma among adults', 'Stroke among adults', 'Cancer (non-skin) or melanoma among adults', 'Coronary heart disease among adults', 'Chronic obstructive pulmonary disease among adults']
+            },
+            health_vulnerability: {
+                source: 'health_vulnerability',
+                sourceLayer: 'health_vulnerability_index_2-22q9rp',
+                field: 'Health_Vulnerability_Index',
+                color: ['#ffffcc', '#9467bd'],
+                valueRange: [-5, 5],
+                title: 'Health Vulnerability Index by Census Tract',
+                url: 'mapbox://ethanhanthit.4hdyzu0m',
+                variables: ['Air_Pollution_Final_Score', 'Water_Pollution_Final_Score', 'Land_Pollution_Final_Score', 'Health_Disparity_Final_Score']
+            }
+        };
+
+        // Function to calculate percentiles
+        function calculatePercentile(arr, value) {
+            const sorted = arr.slice().sort((a, b) => a - b);
+            const rank = sorted.indexOf(value) + 1;
+            return (rank / sorted.length) * 100;
+        }
+
+        map.on('load', function () {
+            for (const layer in layers) {
+                map.addSource(layer, {
+                    'type': 'vector',
+                    'url': layers[layer].url
+                });
+
+                const range = layers[layer].valueRange;
+
+                // Add the fill layer with colors based on the selected field
+                map.addLayer({
+                    'id': layer,
+                    'type': 'fill',
+                    'source': layer,
+                    'source-layer': layers[layer].sourceLayer,
+                    'paint': {
+                        'fill-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', layers[layer].field],
+                            range[0], layers[layer].color[0],
+                            range[1], layers[layer].color[1]
+                        ],
+                        'fill-opacity': 0.75
+                    }
+                });
+
+                // Add a black line around each polygon
+                map.addLayer({
+                    'id': `${layer}-border`,
+                    'type': 'line',
+                    'source': layer,
+                    'source-layer': layers[layer].sourceLayer,
+                    'paint': {
+                        'line-color': '#000000', // Black color
+                        'line-width': 1.5        // Adjust thickness if needed
+                    }
+                });
+
+                // Set the initial visibility
+                map.setLayoutProperty(layer, 'visibility', layer === 'air_pollution' ? 'visible' : 'none');
+                map.setLayoutProperty(`${layer}-border`, 'visibility', layer === 'air_pollution' ? 'visible' : 'none');
+            }
+
+            // Highlight layer for hovering
+            map.addLayer({
+                'id': 'highlighted-tract',
+                'type': 'line',
+                'source': 'air_pollution',
+                'source-layer': 'air_pollution_final_score4-8boyg4',
+                'paint': {
+                    'line-color': '#ff0000',
+                    'line-width': 3
+                },
+                'filter': ['==', 'NAMELSAD10_x', '']
+            });
+
+            // Set initial description and color legend in the legend
+            document.getElementById('layer-description').textContent = layerDescriptions['air_pollution'];
+            updateColorLegend('air_pollution');
+        });
+
+
+
+        document.getElementById('layer-select').addEventListener('change', function (e) {
+            const selectedLayer = e.target.value;
+
+            // Hide all layers and borders
+            for (const layer in layers) {
+                map.setLayoutProperty(layer, 'visibility', 'none');
+                map.setLayoutProperty(`${layer}-border`, 'visibility', 'none');
+            }
+
+            // Show only the selected layer and its border
+            map.setLayoutProperty(selectedLayer, 'visibility', 'visible');
+            map.setLayoutProperty(`${selectedLayer}-border`, 'visibility', 'visible');
+
+            // Update highlight layer, header, and legend
+            if (map.getLayer('highlighted-tract')) {
+                map.removeLayer('highlighted-tract');
+            }
+            map.addLayer({
+                'id': 'highlighted-tract',
+                'type': 'line',
+                'source': selectedLayer,
+                'source-layer': layers[selectedLayer].sourceLayer,
+                'paint': {
+                    'line-color': '#ff0000',
+                    'line-width': 3
+                },
+                'filter': ['==', 'NAMELSAD10_x', '']
+            });
+
+    document.getElementById('header').textContent = layers[selectedLayer].title;
+    updateColorLegend(selectedLayer);
+});
+
+
+        // Function to update the color legend dynamically based on the selected layer
+        function updateColorLegend(layerKey) {
+            const colors = layers[layerKey].color;
+            const colorLegend = document.getElementById('color-legend');
+            colorLegend.innerHTML = `
+                <div class="legend-title">Legend</div>
+                <div class="color-bar">
+                    <div class="color-box" style="background-color: ${colors[0]};"></div>
+                    <span class="color-text">Low</span>
+                </div>
+                <div class="color-bar">
+                    <div class="color-box" style="background-color: ${colors[1]};"></div>
+                    <span class="color-text">High</span>
+                </div>
+                <div id="layer-description">${layerDescriptions[layerKey]}</div>
+            `;
+        }
+
+        // Hover to highlight and display details
+        map.on('mousemove', function (e) {
+            const selectedLayer = document.getElementById('layer-select').value;
+            const features = map.queryRenderedFeatures(e.point, {
+                layers: [selectedLayer]
+            });
+
+            if (features.length > 0) {
+                const feature = features[0];
+                const layer = layers[selectedLayer];
+                document.getElementById('legend').innerHTML = `
+                    <strong>Census Tract: </strong>${feature.properties.NAMELSAD10_x}<br>
+                    <strong>Score: </strong>${feature.properties[layer.field].toFixed(2)}
+                `;
+                map.setFilter('highlighted-tract', ['==', 'NAMELSAD10_x', feature.properties.NAMELSAD10_x]);
+            } else {
+                document.getElementById('legend').innerHTML = 'Hover over a census tract';
+                map.setFilter('highlighted-tract', ['==', 'NAMELSAD10_x', '']);
+            }
+        });
+
+        // Click to update histogram and variable details
+// Click to update histogram and variable details
+// Function to reset the legend to default view (when no census tract is selected)
+        function resetLegendToDefault() {
+            const selectedLayer = document.getElementById('layer-select').value;
+            updateVariablesInfo(selectedLayer); // Reset the legend to show layer variables
+            document.getElementById('legend').innerHTML = 'Hover over a census tract'; // Reset the top legend
+            document.getElementById('percentile-label').innerHTML = 'Percentile: -'; // Reset the percentile
+            document.getElementById('histogramChart').style.display = 'none'; // Optionally hide histogram chart
+            document.getElementById('deselect-btn').style.display = 'none'; // Hide the deselect button
+            map.setFilter('highlighted-tract', ['==', 'NAMELSAD10_x', '']); // Remove highlight from the tract
+        }
+
+        // Add event listener to the deselect button
+        document.getElementById('deselect-tract').addEventListener('click', function() {
+            resetLegendToDefault(); // Call the function to reset the legend
+        });
+
+        // Click to update histogram and variable details
+        map.on('click', function (e) {
+            const selectedLayer = document.getElementById('layer-select').value;
+            const features = map.queryRenderedFeatures(e.point, {
+                layers: [selectedLayer]
+            });
+
+            if (features.length > 0) {
+                const feature = features[0];
+                const layer = layers[selectedLayer];
+                const allFeatures = map.querySourceFeatures(layer.source, { sourceLayer: layer.sourceLayer });
+                const scores = allFeatures.map(f => parseFloat(f.properties[layer.field])).filter(val => !isNaN(val));
+                const clickedScore = parseFloat(feature.properties[layer.field]).toFixed(2);
+
+                const sortedScores = scores.sort((a, b) => a - b);
+                const belowClickedScore = sortedScores.filter(score => score <= clickedScore).length;
+                const percentile = ((belowClickedScore / sortedScores.length) * 100).toFixed(2);
+
+                updateHistogram(scores, clickedScore, percentile);
+                document.getElementById('percentile-label').innerHTML = `Percentile: ${percentile}%`;
+
+                let variablesInfo = `<strong>Census Tract: ${feature.properties.NAMELSAD10_x}</strong><br><br>`;
+                layer.variables.forEach(variable => {
+                    const value = parseFloat(feature.properties[variable]);
+                    const variableScores = allFeatures.map(f => parseFloat(f.properties[variable])).filter(val => !isNaN(val));
+                    const variablePercentile = calculatePercentile(variableScores, value);
+                    
+                    // Check if the variable percentile is above 90th percentile
+                    const isHighPercentile = variablePercentile > 90;
+                    const colorStyle = isHighPercentile ? 'color: red;' : '';
+
+                    variablesInfo += `<div class="variable-entry" style="${colorStyle}"><strong>${variable}:</strong> ${value.toFixed(2)} (Percentile: ${variablePercentile.toFixed(2)}%)</div>`;
+                });
+
+                document.getElementById('variables-info').innerHTML = variablesInfo;
+
+                // Show the deselect button
+                document.getElementById('deselect-btn').style.display = 'block';
+            }
+        });
+
+
+        function updateHistogram(scores, clickedScore, percentile) {
+            const bins = 10;
+            const minScore = Math.min(...scores);
+            const maxScore = Math.max(...scores);
+            const binWidth = (maxScore - minScore) / bins;
+
+            const histogramData = Array(bins).fill(0);
+            scores.forEach(score => {
+                const binIndex = Math.floor((score - minScore) / binWidth);
+                if (binIndex < bins) {
+                    histogramData[binIndex]++;
+                } else {
+                    histogramData[bins - 1]++;
+                }
+            });
+
+            const labels = Array(bins).fill(0).map((_, i) => (minScore + i * binWidth).toFixed(2));
+
+            if (histogramChart) {
+                histogramChart.destroy();
+            }
+
+            const ctx = document.getElementById('histogramChart').getContext('2d');
+            const clickedBinIndex = Math.floor((clickedScore - minScore) / binWidth);
+            histogramChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Score Distribution',
+                        data: histogramData,
+                        backgroundColor: histogramData.map((_, i) => i === clickedBinIndex ? 'rgba(255, 99, 132, 0.6)' : 'rgba(75, 192, 192, 0.6)'),
+                        borderColor: histogramData.map((_, i) => i === clickedBinIndex ? 'rgba(255, 99, 132, 1)' : 'rgba(75, 192, 192, 1)'),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: '#333',
+                                font: { size: 12 },
+                                maxRotation: 45,
+                                minRotation: 45
+                            },
+                            grid: { color: 'rgba(200, 200, 200, 0.2)' }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: '#333', font: { size: 12 } },
+                            grid: { color: 'rgba(200, 200, 200, 0.2)' }
+                    }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+</script>
+
+
+
+
+
+
+
+
+
